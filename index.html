@@ -30,11 +30,13 @@
       box-shadow: 0 2px 6px rgba(0,0,0,0.12);
       z-index: 10;
       flex-shrink: 0;
+      position: relative;
     }
     #hud h1 {
       margin: 0;
       font-size: 16px;
       color: #d63384;
+      padding-right: 42px;
     }
     #stats {
       margin-top: 4px;
@@ -44,6 +46,23 @@
       display: flex;
       justify-content: center;
       gap: 20px;
+    }
+    #sound-btn {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid #d63384;
+      background: #fff0f6;
+      color: #d63384;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
     }
     #game-container {
       flex: 1;
@@ -144,6 +163,7 @@
 
   <div id="hud">
     <h1>👸 芮恩公主 12歲生日大冒險 👸</h1>
+    <button id="sound-btn" aria-label="切換聲音">🔊</button>
     <div id="stats">
       <span id="lives-display">❤️❤️❤️</span>
       <span id="stars-display">⭐ 0 / 10</span>
@@ -171,6 +191,136 @@
   </div>
 
 <script>
+// ================= 音效與背景音樂系統 =================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let soundEnabled = true;
+let bgmTimer = null;
+let bgmStep = 0;
+let bgmMode = "adventure"; // "adventure" | "win" | "none"
+
+// 活潑冒險主旋律（頻率 Hz，0 代表休止）
+const adventureMelody = [
+  523.25, 659.25, 783.99, 659.25,
+  587.33, 783.99, 880.00, 783.99,
+  659.25, 783.99, 1046.50, 783.99,
+  698.46, 880.00, 783.99, 659.25
+];
+
+// 破關歡快慶祝旋律
+const winMelody = [
+  523.25, 659.25, 783.99, 1046.50,
+  783.99, 1046.50, 1174.66, 1318.51,
+  1046.50, 783.99, 659.25, 783.99,
+  1046.50, 0, 1046.50, 0
+];
+
+function ensureAudio() {
+  if (!audioCtx) {
+    audioCtx = new AudioCtx();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+}
+
+function playTone(freq, duration, type = "triangle", volume = 0.12, delay = 0) {
+  if (!soundEnabled || !audioCtx || freq <= 0) return;
+  const now = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, now);
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(volume, now + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.02);
+}
+
+function startBGM(mode = "adventure") {
+  stopBGM();
+  bgmMode = mode;
+  bgmStep = 0;
+  if (!soundEnabled || mode === "none") return;
+
+  const tempoMs = mode === "win" ? 190 : 210;
+  bgmTimer = setInterval(() => {
+    if (!soundEnabled || !audioCtx || audioCtx.state !== "running") return;
+    const notes = bgmMode === "win" ? winMelody : adventureMelody;
+    const freq = notes[bgmStep % notes.length];
+    if (freq > 0) {
+      playTone(freq, 0.16, bgmMode === "win" ? "sine" : "triangle", 0.065, 0);
+    }
+    bgmStep++;
+  }, tempoMs);
+}
+
+function stopBGM() {
+  if (bgmTimer) {
+    clearInterval(bgmTimer);
+    bgmTimer = null;
+  }
+}
+
+// 1. 吃到星星音效
+function sfxStar() {
+  ensureAudio();
+  playTone(987.77, 0.09, "sine", 0.16, 0);
+  playTone(1318.51, 0.18, "sine", 0.16, 0.08);
+}
+
+// 2. 射擊魔法音效
+function sfxMagic() {
+  ensureAudio();
+  if (!soundEnabled || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(880, now);
+  osc.frequency.exponentialRampToValueAtTime(1560, now + 0.12);
+  gain.gain.setValueAtTime(0.14, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + 0.15);
+}
+
+// 3. 被怪物攻擊音效
+function sfxHurt() {
+  ensureAudio();
+  playTone(311.13, 0.14, "sawtooth", 0.14, 0);
+  playTone(220.00, 0.16, "sawtooth", 0.14, 0.11);
+  playTone(146.83, 0.25, "sawtooth", 0.14, 0.22);
+}
+
+// 4. 破關音樂
+function sfxWin() {
+  ensureAudio();
+  startBGM("win");
+}
+
+document.getElementById("sound-btn").addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  soundEnabled = !soundEnabled;
+  document.getElementById("sound-btn").textContent = soundEnabled ? "🔊" : "🔇";
+  if (soundEnabled) {
+    ensureAudio();
+    if (!gameOver) {
+      startBGM(gameWon ? "win" : "adventure");
+    }
+  } else {
+    stopBGM();
+  }
+}, { passive: false });
+
+// ================= 遊戲主程式 =================
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -186,15 +336,29 @@ const WORLD_WIDTH = 2600;
 let cameraX = 0;
 let gameOver = false;
 let gameWon = false;
+let hasStartedAudio = false;
 
 const touchState = { left: false, right: false };
 let player, blocks, stars, monsters, magics, fireworks, castle;
+
+function triggerInitialMusic() {
+  if (!hasStartedAudio) {
+    hasStartedAudio = true;
+    ensureAudio();
+    startBGM("adventure");
+  }
+}
 
 function resetGame() {
   document.getElementById("overlay").style.display = "none";
   gameOver = false;
   gameWon = false;
   cameraX = 0;
+
+  if (hasStartedAudio && soundEnabled) {
+    ensureAudio();
+    startBGM("adventure");
+  }
 
   const groundY = canvas.height - 50;
 
@@ -256,6 +420,7 @@ function updateHUD() {
 }
 
 function jump() {
+  triggerInitialMusic();
   if (gameOver || gameWon) return;
   if (player.grounded) {
     player.vy = player.jumpPower;
@@ -264,7 +429,9 @@ function jump() {
 }
 
 function shootMagic() {
+  triggerInitialMusic();
   if (gameOver || gameWon) return;
+  sfxMagic();
   magics.push({
     x: player.facing === 1 ? player.x + player.w : player.x - 16,
     y: player.y + 18,
@@ -277,6 +444,7 @@ function bindTouchHold(id, dirKey) {
   const btn = document.getElementById(id);
   btn.addEventListener("touchstart", (e) => {
     e.preventDefault();
+    triggerInitialMusic();
     touchState[dirKey] = true;
     btn.classList.add("active");
   }, { passive: false });
@@ -394,6 +562,7 @@ function update() {
         player.y + player.h > s.y) {
       s.collected = true;
       player.stars++;
+      sfxStar();
       updateHUD();
     }
   });
@@ -429,9 +598,11 @@ function update() {
       } else if (player.invincible === 0) {
         player.lives--;
         player.invincible = 60;
+        sfxHurt();
         updateHUD();
         if (player.lives <= 0) {
           gameOver = true;
+          stopBGM();
           document.getElementById("overlay-title").textContent = "💫 差一點點！";
           document.getElementById("overlay-msg").textContent = "再幫芮恩公主挑戰一次吧！";
           document.getElementById("overlay").style.display = "flex";
@@ -442,6 +613,7 @@ function update() {
 
   if (player.x + player.w > castle.x + 30) {
     gameWon = true;
+    sfxWin();
     spawnFirework(castle.x + 60, castle.y - 40);
     document.getElementById("overlay-title").textContent = "🎂 芮恩公主 12歲生日快樂！🎆";
     document.getElementById("overlay-msg").textContent = `成功抵達大城堡！共收集 ${player.stars} 顆星星 ⭐`;
